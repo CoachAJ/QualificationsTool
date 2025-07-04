@@ -17,6 +17,8 @@ from ygy_data_setup import (
     load_csv_files,
     create_team_data_dictionary,
     build_downline_tree,
+    calculate_hierarchical_levels,
+    find_organizational_root,
     get_member_summary,
     calculate_all_ranks,
     analyze_member_qualifications,
@@ -119,11 +121,19 @@ def main():
                     # Process the data
                     team_data = create_team_data_dictionary(genealogy_df)
                     downline_tree = build_downline_tree(team_data)
+                    hierarchical_levels = calculate_hierarchical_levels(team_data, downline_tree)
+                    
+                    # Store levels in team_data
+                    for member_id, level in hierarchical_levels.items():
+                        if member_id in team_data:
+                            team_data[member_id]['hierarchical_level'] = level
+                    
+                    organizational_root = find_organizational_root(team_data)
                     calculated_ranks = calculate_all_ranks(team_data, downline_tree)
                     current_date = get_current_date_la_timezone()
                 
                 # Display results
-                display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date)
+                display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date, organizational_root, hierarchical_levels)
                 
         except Exception as e:
             st.error(f"Error processing files: {str(e)}")
@@ -172,7 +182,7 @@ def show_welcome_screen():
         - Personalized advancement strategies
         """)
 
-def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date):
+def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date, organizational_root, hierarchical_levels):
     """Display the main dashboard with all analysis results"""
     
     # Organization Overview
@@ -194,6 +204,37 @@ def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, c
     
     with col4:
         st.metric("Active Members", summary['active_members'])
+    
+    # Organizational Structure
+    if organizational_root:
+        st.markdown("### 🌳 Organizational Structure")
+        st.markdown("**Hierarchical Level Distribution:**")
+        
+        # Display the root
+        root_info = team_data[organizational_root]
+        current_rank = calculated_ranks.get(organizational_root, 'PCUST')
+        
+        st.markdown(f"**Level 0 (Head):** {root_info['name']} (ID: {organizational_root}) - {current_rank} - PQV: ${root_info.get('pqv', 0):.2f}")
+        
+        # Highlight if 102742703 is the root
+        if organizational_root == '102742703':
+            st.success("[SUCCESS] ID 102742703 confirmed as organizational head (Level 0)")
+        
+        # Count members at each level
+        level_counts = {}
+        for member_id, level in hierarchical_levels.items():
+            level_counts[level] = level_counts.get(level, 0) + 1
+        
+        # Display level distribution
+        st.markdown("**Team Depth Distribution:**")
+        for level in sorted(level_counts.keys()):
+            if level == 0:
+                st.write(f"• Level 0 (Head): {level_counts[level]} member")
+            else:
+                distance = int(level * 10)  # Convert 0.1 to 1, 0.2 to 2, etc.
+                st.write(f"• Level {level} ({distance} levels down): {level_counts[level]} members")
+        
+        st.markdown("---")
     
     # Rank Distribution
     st.markdown("### 🏆 Rank Distribution")

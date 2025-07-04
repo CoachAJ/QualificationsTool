@@ -164,6 +164,88 @@ def build_downline_tree(team_data: Dict[str, Dict[str, Any]]) -> Dict[str, List[
     
     return downline_tree
 
+def calculate_hierarchical_levels(team_data: Dict[str, Dict[str, Any]], downline_tree: Dict[str, List[str]]) -> Dict[str, float]:
+    """
+    Calculate hierarchical levels for all members based on distance from the organizational root.
+    Level 0 = organizational head, Level 0.1 = one level down, Level 0.2 = two levels down, etc.
+    
+    Args:
+        team_data (Dict[str, Dict[str, Any]]): The team data dictionary
+        downline_tree (Dict[str, List[str]]): The downline tree mapping sponsors to sponsees
+        
+    Returns:
+        Dict[str, float]: Dictionary mapping member IDs to their hierarchical levels
+    """
+    # First, find the organizational root (member with no sponsor or external sponsor)
+    root_id = None
+    for member_id, member_info in team_data.items():
+        sponsor_id = str(member_info.get('sponsor_id', '')).strip()
+        
+        if (not sponsor_id or 
+            sponsor_id == '' or 
+            sponsor_id == 'nan' or 
+            sponsor_id not in team_data):
+            root_id = member_id
+            break
+    
+    if not root_id:
+        print("[WARNING] No organizational root found!")
+        return {}
+    
+    # Calculate levels using breadth-first search from the root
+    levels = {}
+    queue = [(root_id, 0)]  # (member_id, level)
+    
+    while queue:
+        current_id, current_level = queue.pop(0)
+        levels[current_id] = current_level
+        
+        # Add all direct sponsees to the queue with level + 0.1
+        if current_id in downline_tree:
+            for sponsee_id in downline_tree[current_id]:
+                if sponsee_id not in levels:  # Avoid cycles
+                    next_level = current_level + 0.1
+                    queue.append((sponsee_id, round(next_level, 1)))
+    
+    # Display the organizational structure
+    root_info = team_data[root_id]
+    print(f"Organizational Structure - Root: {root_info['name']} (ID: {root_id})")
+    print(f"  Level 0 (Head): {root_info['name']} - Rank: {root_info.get('calculated_rank', 'N/A')}")
+    
+    # Count members at each level
+    level_counts = {}
+    for member_id, level in levels.items():
+        level_counts[level] = level_counts.get(level, 0) + 1
+    
+    for level in sorted(level_counts.keys()):
+        if level > 0:
+            distance = int(level * 10)  # Convert 0.1 to 1, 0.2 to 2, etc.
+            print(f"  Level {level} ({distance} levels down): {level_counts[level]} members")
+    
+    return levels
+
+
+def find_organizational_root(team_data: Dict[str, Dict[str, Any]]) -> str:
+    """
+    Find the single organizational root (Level 0 member).
+    
+    Args:
+        team_data (Dict[str, Dict[str, Any]]): The team data dictionary
+        
+    Returns:
+        str: Member ID of the organizational root, or None if not found
+    """
+    for member_id, member_info in team_data.items():
+        sponsor_id = str(member_info.get('sponsor_id', '')).strip()
+        
+        if (not sponsor_id or 
+            sponsor_id == '' or 
+            sponsor_id == 'nan' or 
+            sponsor_id not in team_data):
+            return member_id
+    
+    return None
+
 def get_member_summary(team_data: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
     """
     Get summary statistics about team members.
@@ -686,12 +768,12 @@ def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> Li
     suggestions = []
     
     if pqv_gap <= 0:
-        suggestions.append("✅ No PQV gap - leader already meets personal volume requirement.")
+        suggestions.append("[OK] No PQV gap - leader already meets personal volume requirement.")
         return suggestions
     
     if not volume_donors:
-        suggestions.append(f"❌ Need ${pqv_gap:.2f} more PQV but no movable orders available.")
-        suggestions.append("💡 Consider: Personal purchase or encourage new orders from team.")
+        suggestions.append(f"[ALERT] Need ${pqv_gap:.2f} more PQV but no movable orders available.")
+        suggestions.append("[TIP] Consider: Personal purchase or encourage new orders from team.")
         return suggestions
     
     # Sort orders by volume (largest first) for efficient gap filling
@@ -708,8 +790,8 @@ def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> Li
         running_total += order['volume']
     
     if running_total >= pqv_gap:
-        suggestions.append(f"✅ PQV Gap Solution Found: Move ${running_total:.2f} volume (${pqv_gap:.2f} needed)")
-        suggestions.append("📋 Recommended Order Moves:")
+        suggestions.append(f"[SOLUTION] PQV Gap Solution Found: Move ${running_total:.2f} volume (${pqv_gap:.2f} needed)")
+        suggestions.append("[MOVES] Recommended Order Moves:")
         
         for order in selected_orders:
             suggestions.append(
@@ -718,11 +800,11 @@ def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> Li
         
         excess = running_total - pqv_gap
         if excess > 0:
-            suggestions.append(f"📊 Note: This provides ${excess:.2f} extra volume beyond the gap.")
+            suggestions.append(f"[NOTE] This provides ${excess:.2f} extra volume beyond the gap.")
     else:
         available_total = sum(order['volume'] for order in volume_donors)
-        suggestions.append(f"⚠️ Insufficient movable volume: ${available_total:.2f} available, ${pqv_gap:.2f} needed")
-        suggestions.append(f"📋 All Available Orders (${available_total:.2f} total):")
+        suggestions.append(f"[WARNING] Insufficient movable volume: ${available_total:.2f} available, ${pqv_gap:.2f} needed")
+        suggestions.append(f"[ORDERS] All Available Orders (${available_total:.2f} total):")
         
         for order in sorted_orders:
             suggestions.append(
@@ -730,7 +812,7 @@ def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> Li
             )
         
         shortfall = pqv_gap - available_total
-        suggestions.append(f"💡 Still need ${shortfall:.2f} more - consider personal purchases or new team orders.")
+        suggestions.append(f"[TIP] Still need ${shortfall:.2f} more - consider personal purchases or new team orders.")
     
     return suggestions
 
@@ -750,7 +832,7 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
     suggestions = []
     
     if not volume_donors:
-        suggestions.append("❌ No movable orders available for leg development.")
+        suggestions.append("[ALERT] No movable orders available for leg development.")
         return suggestions
     
     # Get leader's direct sponsees and their ranks
@@ -790,13 +872,13 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
             underperforming_legs.append(next_rank_gap)
     
     if not underperforming_legs:
-        suggestions.append("✅ All frontline legs are performing optimally or gaps are too large to fill with available volume.")
+        suggestions.append("[OK] All frontline legs are performing optimally or gaps are too large to fill with available volume.")
         return suggestions
     
     # Sort legs by smallest gap first (easiest wins)
     underperforming_legs.sort(key=lambda x: x['pqv_gap'])
     
-    suggestions.append(f"🎯 Found {len(underperforming_legs)} legs with advancement opportunities:")
+    suggestions.append(f"[TARGET] Found {len(underperforming_legs)} legs with advancement opportunities:")
     suggestions.append("")
     
     available_volume = sum(order['volume'] for order in volume_donors)
@@ -804,7 +886,7 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
     
     for leg in underperforming_legs:
         suggestions.append(
-            f"👤 {leg['name']} (ID: {leg['sponsee_id']}) - {leg['current_rank']} → {leg['target_rank']}"
+            f"[LEG] {leg['name']} (ID: {leg['sponsee_id']}) - {leg['current_rank']} -> {leg['target_rank']}"
         )
         suggestions.append(f"   Current PQV: ${leg['current_pqv']:.2f} | Gap: ${leg['pqv_gap']:.2f}")
         
@@ -821,17 +903,16 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
                 used_orders.append(order)
                 running_total += order['volume']
             
-            suggestions.append("   💡 Recommended moves:")
+            suggestions.append("   [MOVES] Recommended moves:")
             for suggestion in leg_suggestions[2:]:  # Skip header lines
                 if suggestion.startswith("  •"):
                     suggestions.append(f"     {suggestion}")
         else:
-            suggestions.append("   ❌ Insufficient available volume for this leg")
+            suggestions.append("   [ALERT] Insufficient available volume for this leg")
         
         suggestions.append("")
     
     return suggestions
-
 def suggest_placement_moves(placeable_assets: List[Dict[str, Any]], 
                            downline_tree: Dict[str, List[str]]) -> List[str]:
     """
@@ -847,28 +928,28 @@ def suggest_placement_moves(placeable_assets: List[Dict[str, Any]],
     suggestions = []
     
     if not placeable_assets:
-        suggestions.append("✅ No new PCUSTs within 60-day placement window.")
+        suggestions.append("[OK] No new PCUSTs within 60-day placement window.")
         return suggestions
     
-    suggestions.append(f"📍 Found {len(placeable_assets)} PCUSTs available for strategic placement:")
+    suggestions.append(f"[PLACEMENT] Found {len(placeable_assets)} PCUSTs available for strategic placement:")
     suggestions.append("")
     
     for asset in placeable_assets:
         days_left = 60 - asset['days_since_join']
         suggestions.append(
-            f"👤 {asset['pcust_name']} (ID: {asset['pcust_id']}) - {days_left} days left to move"
+            f"[PCUST] {asset['pcust_name']} (ID: {asset['pcust_id']}) - {days_left} days left to move"
         )
         suggestions.append(f"   Joined: {asset['join_date']} ({asset['days_since_join']} days ago)")
         
         # Strategic placement suggestions
-        suggestions.append("   💡 Strategic Placement Options:")
+        suggestions.append("   [OPTIONS] Strategic Placement Options:")
         suggestions.append("     1. Move under developing legs to help with rank requirements")
         suggestions.append("     2. Create new leg if leader needs more frontline diversity")
         suggestions.append("     3. Place under top performers to maximize team growth potential")
         suggestions.append("     4. Strategic depth placement for future compression benefits")
         suggestions.append("")
     
-    suggestions.append("🎯 General Placement Strategy:")
+    suggestions.append("[STRATEGY] General Placement Strategy:")
     suggestions.append("• Priority 1: Support legs close to rank advancement")
     suggestions.append("• Priority 2: Balance frontline for better qualification")
     suggestions.append("• Priority 3: Strategic depth for long-term growth")
@@ -936,6 +1017,16 @@ def main():
         # Build downline tree
         print("Step 3: Building downline tree...")
         downline_tree = build_downline_tree(team_data)
+        print()
+        
+        # Calculate hierarchical levels
+        print("Step 4.1: Calculating hierarchical levels...")
+        hierarchical_levels = calculate_hierarchical_levels(team_data, downline_tree)
+        
+        # Store levels in team_data for later use
+        for member_id, level in hierarchical_levels.items():
+            if member_id in team_data:
+                team_data[member_id]['hierarchical_level'] = level
         print()
         
         # Display summary statistics
@@ -1014,7 +1105,7 @@ def main():
             print(f"  {member_info['name']}: ${gqv_3cl:.2f} GQV-3CL | PQV: ${member_info['pqv']:.2f}")
         print()
         
-        print(f"\n✅ Phase 1 & 2 completed successfully!")
+        print(f"\n[SUCCESS] Phase 1 & 2 completed successfully!")
         
         # ===== PHASE 3: STRATEGIC MOVE IDENTIFIER DEMO =====
         print("\n=== PHASE 3: STRATEGIC MOVE IDENTIFIER ===")
@@ -1062,7 +1153,7 @@ def main():
                         if suggestion.strip():  # Skip empty lines
                             print(f"    {suggestion}")
         
-        print(f"\n✅ Phase 1, 2 & 3 completed successfully!")
+        print(f"\n[SUCCESS] Phase 1, 2 & 3 completed successfully!")
         
         print("\nThe following variables are now available:")
         print("  - group_volume_df: Group Volume Details DataFrame")
@@ -1086,7 +1177,7 @@ def main():
         return group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks
         
     except Exception as e:
-        print(f"❌ Error during data setup: {str(e)}")
+        print(f"[ERROR] Error during data setup: {str(e)}")
         raise
 
 if __name__ == "__main__":
