@@ -549,14 +549,22 @@ def get_paid_as_rank(member_id: str, team_data: Dict[str, Dict[str, Any]],
     for sponsee_id in direct_sponsees:
         get_paid_as_rank(sponsee_id, team_data, downline_tree, calculated_ranks)
     
-    # Now determine this member's rank by checking requirements from highest to lowest
-    member_rank = 'PCUST'  # Default to lowest rank
+    # Check member type first - PCUSTs cannot become distributors regardless of volume
+    member_info = team_data[member_id]
+    member_title = member_info.get('title', '').upper().strip()
     
-    # Check each rank from highest to lowest to find the highest qualifying rank
-    for rank in reversed(RANK_HIERARCHY):
-        if meets_rank_requirements(member_id, rank, team_data, downline_tree, calculated_ranks):
-            member_rank = rank
-            break
+    # If member is enrolled as PCUST, they remain PCUST regardless of volume
+    if member_title == 'PCUST':
+        member_rank = 'PCUST'
+    else:
+        # For distributors, determine rank by checking requirements from highest to lowest
+        member_rank = 'PCUST'  # Default to lowest rank
+        
+        # Check each rank from highest to lowest to find the highest qualifying rank
+        for rank in reversed(RANK_HIERARCHY):
+            if meets_rank_requirements(member_id, rank, team_data, downline_tree, calculated_ranks):
+                member_rank = rank
+                break
     
     # Cache and return the result
     calculated_ranks[member_id] = member_rank
