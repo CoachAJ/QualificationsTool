@@ -28,8 +28,6 @@ from ygy_data_setup import (
     suggest_placement_moves,
     analyze_leader_strategic_moves,
     get_current_date_la_timezone,
-    get_analysis_order,
-    get_strategic_analysis_summary,
     RANK_REQUIREMENTS,
     RANK_HIERARCHY
 )
