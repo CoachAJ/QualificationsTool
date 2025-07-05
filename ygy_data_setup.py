@@ -851,6 +851,7 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
     
     # Analyze each leg's potential for rank advancement
     underperforming_legs = []
+    pcust_legs = []
     
     for sponsee_id in direct_sponsees:
         if sponsee_id not in team_data:
@@ -859,8 +860,21 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
         sponsee_info = team_data[sponsee_id]
         current_rank = calculated_ranks.get(sponsee_id, 'PCUST')
         current_pqv = sponsee_info.get('pqv', 0.0)
+        member_title = sponsee_info.get('title', '').upper().strip()
         
-        # Check what rank they could achieve with more PQV
+        # BUSINESS RULE: PCUSTs cannot advance to distributor ranks
+        # They can only be moved (within 60 days) or donate volume
+        if member_title == 'PCUST' or current_rank == 'PCUST':
+            # Track PCUSTs separately for volume donation or placement suggestions
+            pcust_legs.append({
+                'sponsee_id': sponsee_id,
+                'name': sponsee_info['name'],
+                'current_pqv': current_pqv,
+                'title': member_title
+            })
+            continue  # Skip rank advancement analysis for PCUSTs
+        
+        # Only analyze distributors for rank advancement
         next_rank_gap = None
         for rank in RANK_HIERARCHY:
             if get_rank_level(rank) > get_rank_level(current_rank):
@@ -880,14 +894,35 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
         if next_rank_gap:
             underperforming_legs.append(next_rank_gap)
     
+    # Provide PCUST business rule information
+    if pcust_legs:
+        suggestions.append(f"[PCUST INFO] Found {len(pcust_legs)} PCUST legs:")
+        suggestions.append("⚠️  BUSINESS RULE: PCUSTs cannot advance to distributor ranks.")
+        suggestions.append("📋 PCUST Strategic Options:")
+        suggestions.append("   • Move to different upline (within 60 days of enrollment)")
+        suggestions.append("   • Use their volume to help build qualifying legs")
+        suggestions.append("   • Focus on personal volume contribution")
+        suggestions.append("")
+        
+        for pcust in pcust_legs[:5]:  # Show first 5 PCUSTs
+            suggestions.append(f"   [PCUST] {pcust['name']} (ID: {pcust['sponsee_id']}) - PQV: ${pcust['current_pqv']:.2f}")
+        
+        if len(pcust_legs) > 5:
+            suggestions.append(f"   ... and {len(pcust_legs) - 5} more PCUSTs")
+        suggestions.append("")
+    
     if not underperforming_legs:
-        suggestions.append("[OK] All frontline legs are performing optimally or gaps are too large to fill with available volume.")
+        if pcust_legs:
+            suggestions.append("[OK] All distributor legs are performing optimally. Focus on PCUST volume contribution and placement strategy.")
+        else:
+            suggestions.append("[OK] All frontline legs are performing optimally or gaps are too large to fill with available volume.")
         return suggestions
     
     # Sort legs by smallest gap first (easiest wins)
     underperforming_legs.sort(key=lambda x: x['pqv_gap'])
     
-    suggestions.append(f"[TARGET] Found {len(underperforming_legs)} legs with advancement opportunities:")
+    suggestions.append(f"[TARGET] Found {len(underperforming_legs)} DISTRIBUTOR legs with advancement opportunities:")
+    suggestions.append("✅ These are enrolled distributors who can advance with additional volume.")
     suggestions.append("")
     
     available_volume = sum(order['volume'] for order in volume_donors)
