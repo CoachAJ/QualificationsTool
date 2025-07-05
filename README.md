@@ -1,6 +1,6 @@
-# Youngevity Strategy Tool - Streamlit Web App
+# 🌻 Daily With Doc - Youngevity Strategy Tool
 
-A powerful web-based strategic analysis tool for Youngevity organizations, providing rank optimization and strategic move recommendations.
+A powerful web-based strategic analysis tool developed for Daily With Doc's Youngevity organizations, providing rank optimization and strategic move recommendations with professional branding and AI-powered insights.
 
 ## 🎯 Features
 
@@ -9,6 +9,7 @@ A powerful web-based strategic analysis tool for Youngevity organizations, provi
 - **60-Day Compliance**: Automatic enforcement of YGY's 60-day PCUST movement window
 - **Order-Specific Suggestions**: Precise volume movement recommendations with order numbers
 - **Interactive Dashboard**: User-friendly web interface with file upload and export capabilities
+- **AI Strategic Advisor**: Get personalized strategic advice using your own API key from leading AI providers
 
 ## 🚀 Quick Start
 
@@ -89,6 +90,46 @@ Upload these CSV files from your YGY back office:
 - Strategic analysis reports in text format
 - Downloadable recommendations with specific action items
 - Complete analysis timestamp and leader information
+
+## 🤖 AI Strategic Advisor
+
+### Overview
+The AI Strategic Advisor allows you to get personalized strategic advice using your own API key from leading AI providers. After your data analysis is complete, you can interact with an AI assistant that understands your organizational structure and YGY business rules.
+
+### Supported AI Providers
+- **OpenAI** (GPT-4) - Requires OpenAI API key
+- **Anthropic** (Claude) - Requires Anthropic API key  
+- **Google** (Gemini) - Requires Google AI API key
+
+### Features
+- **Organizational Strategy**: Get high-level growth recommendations
+- **Level 0 Focus**: Specific advice for your organizational head
+- **Rank Advancement**: Identify best advancement opportunities
+- **Member-Specific Advice**: Targeted strategies for individual members
+- **Interactive Chat**: Ask custom questions about your organization
+- **Advice History**: Review previous AI recommendations
+
+### Setup Instructions
+1. Complete your data analysis (upload CSV files)
+2. Obtain an API key from one of the supported providers:
+   - **OpenAI**: <https://platform.openai.com/api-keys>
+   - **Anthropic**: <https://console.anthropic.com/>
+   - **Google AI**: <https://makersuite.google.com/app/apikey>
+3. In the "Configure AI Advisor" section, select your provider and enter your API key
+4. Click "Connect AI Advisor" - your key is only used for this session and never stored
+
+### Privacy & Security
+- ✅ API keys are never stored or logged
+- ✅ Only used for the current browser session
+- ✅ Your organizational data stays private (only shared with your chosen AI provider)
+- ✅ All communication is encrypted via HTTPS
+
+### Example Questions
+- "What are the top 3 priorities for growing my organization?"
+- "How can my Level 0 member maximize team growth?"
+- "Which distributors should I focus on for rank advancement?"
+- "What placement strategies should I consider?"
+- "How can I improve my team's retention rate?"
 
 ## 🔧 Technical Stack
 

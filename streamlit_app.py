@@ -28,62 +28,163 @@ from ygy_data_setup import (
     suggest_placement_moves,
     analyze_leader_strategic_moves,
     get_current_date_la_timezone,
+    get_analysis_order,
+    get_strategic_analysis_summary,
     RANK_REQUIREMENTS,
     RANK_HIERARCHY
 )
 
 # Page configuration
 st.set_page_config(
-    page_title="Youngevity Strategy Tool",
-    page_icon="🎯",
+    page_title="Daily With Doc - Youngevity Strategy Tool",
+    page_icon="🌻",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS with Daily With Doc Brand Guidelines
 st.markdown("""
 <style>
+    /* Daily With Doc Brand Colors */
+    :root {
+        --blue-fog: #71C6DB;
+        --orange: #F3A234;
+        --dark-blue: #0A4572;
+        --medium-gray: #7D7D7D;
+        --very-dark-blue: #4A4A4A;
+        --white: #FFFFFF;
+        --black: #000000;
+    }
+    
     .main-header {
         font-size: 2.5rem;
-        color: #1f77b4;
+        color: var(--dark-blue);
         text-align: center;
         margin-bottom: 2rem;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
     }
+    
     .section-header {
         font-size: 1.5rem;
-        color: #ff7f0e;
+        color: var(--orange);
         margin-top: 2rem;
         margin-bottom: 1rem;
+        font-weight: 600;
+        border-bottom: 2px solid var(--blue-fog);
+        padding-bottom: 0.5rem;
     }
+    
     .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
+        background: linear-gradient(135deg, var(--white) 0%, #f8f9fa 100%);
+        border: 2px solid var(--blue-fog);
+        padding: 1.2rem;
+        border-radius: 8px;
         margin: 0.5rem 0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: transform 0.2s ease;
     }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+    
     .success-box {
-        background-color: #d4edda;
-        border-left: 5px solid #28a745;
-        padding: 1rem;
+        background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
+        border-left: 5px solid var(--orange);
+        border-radius: 6px;
+        padding: 1.2rem;
         margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    
     .warning-box {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
-        padding: 1rem;
+        background: linear-gradient(135deg, #fff8e1 0%, #fff3cd 100%);
+        border-left: 5px solid var(--dark-blue);
+        border-radius: 6px;
+        padding: 1.2rem;
         margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .info-box {
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        border-left: 5px solid var(--blue-fog);
+        border-radius: 6px;
+        padding: 1.2rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .brand-accent {
+        color: var(--orange);
+        font-weight: 600;
+    }
+    
+    .brand-blue {
+        color: var(--dark-blue);
+        font-weight: 600;
+    }
+    
+    /* Custom button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, var(--orange) 0%, #e8941f 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #e8941f 0%, var(--orange) 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background: linear-gradient(180deg, var(--blue-fog) 0%, #5bb8d1 100%);
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        border-bottom: 2px solid var(--blue-fog);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        color: var(--medium-gray);
+        font-weight: 600;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        color: var(--dark-blue) !important;
+        border-bottom: 3px solid var(--orange) !important;
+    }
+    
+    /* Priority table styling */
+    .priority-1 {
+        background: linear-gradient(135deg, var(--orange) 0%, #f3a234cc 100%);
+        color: white;
+        font-weight: bold;
+    }
+    
+    .analysis-candidate {
+        background: linear-gradient(135deg, var(--blue-fog) 0%, #71c6dbcc 100%);
+        color: var(--very-dark-blue);
     }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
     # Header
-    st.markdown('<h1 class="main-header">🎯 Youngevity Strategy Tool</h1>', unsafe_allow_html=True)
-    st.markdown("**Strategic Analysis & Rank Optimization for YGY Organizations**")
+    st.markdown('<h1 class="main-header">🌻 Daily With Doc - Youngevity Strategy Tool</h1>', unsafe_allow_html=True)
+    st.markdown("**<span class='brand-accent'>Strategic Analysis & Rank Optimization</span> for <span class='brand-blue'>YGY Organizations</span>**", unsafe_allow_html=True)
     
     # Sidebar for file uploads
     st.sidebar.header("📁 Upload CSV Files")
-    st.sidebar.markdown("Upload your Youngevity CSV files to get started:")
+    st.sidebar.markdown("<span class='brand-accent'>🌻 Daily With Doc</span><br>Upload your Youngevity CSV files to get started:", unsafe_allow_html=True)
     
     # File uploaders
     group_volume_file = st.sidebar.file_uploader(
@@ -151,17 +252,19 @@ def show_welcome_screen():
     with col2:
         st.markdown("### 🚀 Get Started")
         st.markdown("""
-        Welcome to the Youngevity Strategy Tool! Upload your CSV files to:
-        
-        ✅ **Analyze your organization structure**  
-        ✅ **Calculate accurate Paid-As Ranks**  
-        ✅ **Identify strategic move opportunities**  
-        ✅ **Get personalized advancement recommendations**  
-        
-        **Required Files:**
-        1. **Group Volume Details CSV** - From YGY back office reports
-        2. **Advanced Genealogy Report CSV** - From YGY back office reports
-        """)
+        <div class="info-box">
+        <h3 style="color: var(--dark-blue); margin-top: 0;">🌻 Welcome to Daily With Doc's Youngevity Strategy Tool!</h3>
+        <p>Upload your CSV files to unlock powerful strategic insights for your YGY organization:</p>
+        <ul>
+        <li><span class="brand-accent">✨ Analyze</span> your team structure and rank distribution</li>
+        <li><span class="brand-accent">🎯 Get strategic recommendations</span> for rank advancement</li>
+        <li><span class="brand-accent">🚀 Identify optimal placement</span> and volume movement opportunities</li>
+        <li><span class="brand-accent">📈 Maximize</span> your organization's growth potential</li>
+        <li><span class="brand-accent">🤖 AI Strategic Advisor</span> - Get personalized advice with your own API key</li>
+        </ul>
+        <p><strong>Get started by uploading your CSV files in the sidebar</strong> →</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         st.markdown("### 📋 What You'll Get")
         st.markdown("""

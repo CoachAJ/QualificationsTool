@@ -103,6 +103,7 @@ def create_team_data_dictionary(genealogy_df: pd.DataFrame) -> Dict[str, Dict[st
         member_info = {
             'name': safe_get('Name'),
             'title': safe_get('Title'),
+            'rank': safe_get('Rank', 'PCUST').upper().strip(),  # Extract rank from column D
             'join_date': safe_get('Join Date'),
             'sponsor_id': safe_get('Sponsor ID'),
             'enroller_id': safe_get('Enroller'),
