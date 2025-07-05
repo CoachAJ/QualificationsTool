@@ -380,30 +380,100 @@ def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, c
     # Strategic Analysis Section
     st.markdown('<h2 class="section-header">🎯 Strategic Move Analysis</h2>', unsafe_allow_html=True)
     
-    # Leader selection
-    leaders = [p for p in top_performers if p['PQV'] > 100]  # Focus on significant leaders
+    # Always include organizational root (sheet owner) as priority
+    analysis_candidates = []
     
-    if leaders:
-        selected_leader = st.selectbox(
-            "Select a leader for strategic analysis:",
-            options=[f"{leader['Name']} (ID: {leader['ID']}) - {leader['Current Rank']}" for leader in leaders],
-            help="Choose a team leader to analyze their strategic opportunities"
+    # Add organizational root first (PRIORITY)
+    if organizational_root:
+        root_info = team_data[organizational_root]
+        root_analysis = analyze_member_qualifications(organizational_root, team_data, downline_tree, calculated_ranks)
+        analysis_candidates.append({
+            'ID': organizational_root,
+            'Name': root_info['name'],
+            'Current Rank': root_analysis['current_rank'],
+            'PQV': root_analysis['pqv'],
+            'GQV-3CL': root_analysis['gqv_3cl'],
+            'Next Rank': root_analysis['next_achievable_rank'],
+            'PQV Gap': root_analysis['gaps_to_next_rank'].get('pqv_gap', 0) if root_analysis['gaps_to_next_rank'] else 0,
+            'Priority': '🌟 SHEET OWNER (Level 0)'
+        })
+    
+    # Add other qualified leaders (PQV > 50 to be more inclusive)
+    qualified_leaders = [p for p in top_performers if p['PQV'] > 50 and p['ID'] != organizational_root]
+    for leader in qualified_leaders:
+        leader['Priority'] = f"Level {hierarchical_levels.get(leader['ID'], 'Unknown')}"
+        analysis_candidates.append(leader)
+    
+    # Member Search Section
+    st.markdown("### 🔍 Find Any Member")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        search_term = st.text_input(
+            "Search by Name or ID:",
+            placeholder="Enter member name or ID (e.g., 'nutrientshelp')",
+            help="Search for any member in the organization"
+        )
+    
+    with col2:
+        if search_term:
+            search_results = []
+            for member_id, member_info in team_data.items():
+                if (search_term.lower() in member_info['name'].lower() or 
+                    search_term in member_id):
+                    member_analysis = analyze_member_qualifications(member_id, team_data, downline_tree, calculated_ranks)
+                    search_results.append({
+                        'ID': member_id,
+                        'Name': member_info['name'],
+                        'Current Rank': member_analysis['current_rank'],
+                        'PQV': member_analysis['pqv'],
+                        'Level': hierarchical_levels.get(member_id, 'Unknown'),
+                        'Priority': '🔍 SEARCH RESULT'
+                    })
+            
+            if search_results:
+                st.success(f"Found {len(search_results)} member(s)")
+                # Add search results to analysis candidates
+                for result in search_results:
+                    if result['ID'] not in [c['ID'] for c in analysis_candidates]:
+                        analysis_candidates.append(result)
+            else:
+                st.warning(f"No members found matching '{search_term}'")
+    
+    # Leader Selection
+    if analysis_candidates:
+        st.markdown("### 📊 Select Member for Strategic Analysis")
+        
+        # Create dropdown options with priority indicators
+        options = []
+        for candidate in analysis_candidates:
+            priority = candidate.get('Priority', 'Standard')
+            options.append(f"{priority} - {candidate['Name']} (ID: {candidate['ID']}) - {candidate['Current Rank']} - PQV: ${candidate['PQV']:.2f}")
+        
+        selected_member = st.selectbox(
+            "Choose a member for detailed strategic analysis:",
+            options=options,
+            help="The sheet owner (Level 0) is always available first, followed by other qualified leaders"
         )
         
-        if selected_leader:
-            # Extract leader ID
-            leader_id = selected_leader.split("ID: ")[1].split(")")[0]
+        if selected_member:
+            # Extract member ID
+            member_id = selected_member.split("ID: ")[1].split(")")[0]
+            
+            # Show member context
+            selected_info = next(c for c in analysis_candidates if c['ID'] == member_id)
+            st.info(f"**Analyzing:** {selected_info['Name']} - {selected_info.get('Priority', 'Member')}")
             
             # Run strategic analysis
             with st.spinner("Analyzing strategic opportunities..."):
                 strategic_analysis = analyze_leader_strategic_moves(
-                    leader_id, team_data, group_volume_df, downline_tree, calculated_ranks, current_date
+                    member_id, team_data, group_volume_df, downline_tree, calculated_ranks, current_date
                 )
                 
                 display_strategic_analysis(strategic_analysis)
     
     else:
-        st.info("No qualified leaders found for strategic analysis. Upload data with active distributors (PQV > $100).")
+        st.error("❌ No organizational root found. Please check your data upload.")
 
 def display_strategic_analysis(strategic_analysis):
     """Display detailed strategic analysis results"""
