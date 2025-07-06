@@ -207,7 +207,11 @@ def main():
             "claude-3-opus-20240229",
             "claude-3-haiku-20240307",
             "gemini-1.5-pro",
-            "gemini-1.5-flash"
+            "gemini-1.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-preview-04-17",
+            "gemini-2.5-flash-lite-preview-06-17"
         ],
         index=1,  # Default to gpt-4o-mini for cost efficiency
         help="Choose AI model for strategic analysis - OpenAI, Anthropic Claude, or Google Gemini"
@@ -956,7 +960,7 @@ Focus on highest earning potential moves. Max 300 words.
 def get_gemini_advice(analysis_data: Dict, api_key: str, model: str) -> str:
     """Get Gemini-powered strategic advice"""
     try:
-        import google.generativeai as genai
+        import google.genai as genai
         genai.configure(api_key=api_key)
         model_instance = genai.GenerativeModel(model)
         
@@ -992,7 +996,7 @@ Data-driven, compensation-focused. Max 300 words.
         return response.text
         
     except ImportError:
-        return "❌ Google AI library not installed. Run: pip install google-generativeai"
+        return "❌ Google AI library not installed. Run: pip install google-genai"
     except Exception as e:
         return f"❌ Gemini Error: {str(e)}"
 
