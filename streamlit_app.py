@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime
 import pytz
 from typing import Dict, List, Any, Optional
+import json
 
 # Import functions from the main script (ImportError fix applied)
 from ygy_data_setup import (
@@ -188,6 +189,35 @@ def main():
         type=['csv'],
         help="Upload your Advanced Genealogy Report from YGY back office"
     )
+    
+    # LLM Integration Section
+    st.sidebar.markdown("---")
+    st.sidebar.header("🤖 AI Strategic Advisor")
+    st.sidebar.markdown("<span class='brand-accent'>✨ Get Personalized Strategy Advice</span>", unsafe_allow_html=True)
+    
+    # API Key input
+    api_key = st.sidebar.text_input(
+        "OpenAI API Key",
+        type="password",
+        help="Enter your OpenAI API key for AI-powered strategic advice",
+        placeholder="sk-..."
+    )
+    
+    # LLM Model selection
+    llm_model = st.sidebar.selectbox(
+        "🤖 AI Model",
+        options=["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+        index=1,  # Default to gpt-4o-mini for cost efficiency
+        help="Choose AI model for strategic analysis"
+    )
+    
+    # Store API key in session state
+    if api_key:
+        st.session_state.openai_api_key = api_key
+        st.session_state.llm_model = llm_model
+        st.sidebar.success("✅ AI Advisor Ready!")
+    else:
+        st.sidebar.info("🔑 Add API key to unlock AI advisor")
     
     # Process files if both are uploaded
     if group_volume_file is not None and genealogy_file is not None:
@@ -735,6 +765,61 @@ PLACEMENT STRATEGIES:
             mime="text/plain"
         )
 
+def get_ai_strategic_advice(analysis_data: Dict, api_key: str, model: str = "gpt-4o-mini") -> str:
+    """Get AI-powered strategic advice for rank advancement"""
+    try:
+        import openai
+        openai.api_key = api_key
+        
+        # Prepare context for AI
+        member_name = analysis_data['member_name']
+        current_rank = analysis_data['current_rank']
+        desired_rank = analysis_data['desired_rank']
+        gaps = analysis_data['gaps']
+        move_recommendations = analysis_data['move_recommendations']
+        
+        prompt = f"""
+You are an expert Youngevity business strategist helping a distributor advance their rank.
+
+DISTRIBUTOR: {member_name}
+CURRENT RANK: {current_rank}
+DESIRED RANK: {desired_rank}
+
+CURRENT GAPS:
+- PQV Gap: ${gaps['pqv_gap']:.2f}
+- GQV Gap: ${gaps['gqv_gap']:.2f} 
+- Qualifying Legs Gap: {gaps['legs_gap']}
+
+SYSTEM RECOMMENDATIONS:
+{chr(10).join(move_recommendations[:10])}  # Limit to first 10 lines
+
+As a Youngevity expert, provide:
+1. STRATEGIC PRIORITIES - What should they focus on first?
+2. BUSINESS INSIGHTS - Key success factors for this advancement
+3. TIMELINE GUIDANCE - Realistic timeframe for achievement
+4. RISK MITIGATION - Potential challenges and solutions
+5. NEXT STEPS - Specific action items beyond the system recommendations
+
+Be specific, actionable, and focus on real-world Youngevity business strategies. Keep response under 300 words.
+"""
+        
+        response = openai.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are an expert Youngevity MLM business strategist with deep knowledge of rank advancement, volume moves, and team building strategies."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=400,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+        
+    except ImportError:
+        return "❌ OpenAI library not installed. Run: pip install openai"
+    except Exception as e:
+        return f"❌ AI Advisor Error: {str(e)}"
+
 def display_individual_rank_planner(team_data, group_volume_df, current_date):
     """Display Individual Rank Advancement Planner"""
     
@@ -742,10 +827,12 @@ def display_individual_rank_planner(team_data, group_volume_df, current_date):
     st.markdown("## 🎯 Individual Rank Advancement Planner")
     st.markdown("*Select a specific member and target rank for detailed advancement strategy*")
     
-    # Get list of all members for dropdown
-    member_options = [(member_id, f"{info['name']} (ID: {member_id})")
+    # Get list of all members for dropdown (EXCLUDE PCUSTs - they cannot advance ranks)
+    member_options = [(member_id, f"{info['name']} (ID: {member_id}) - {info.get('calculated_rank', 'DIS')}")
                      for member_id, info in team_data.items()
-                     if info.get('name', '').strip()]
+                     if info.get('name', '').strip() and 
+                        info.get('calculated_rank', '').upper() != 'PCUST' and
+                        info.get('title', '').upper() != 'PCUST']
     member_options.sort(key=lambda x: x[1])  # Sort by name
     
     if not member_options:
@@ -892,6 +979,47 @@ def display_individual_rank_planner(team_data, group_volume_df, current_date):
                         file_name=f"advancement_plan_{selected_member}_{target_rank}.txt",
                         mime="text/plain"
                     )
+                    
+                    # AI Strategic Advisor Integration
+                    if hasattr(st.session_state, 'openai_api_key') and st.session_state.openai_api_key:
+                        st.markdown("---")
+                        st.markdown("#### 🤖 AI Strategic Advisor")
+                        
+                        if st.button("✨ Get AI Strategic Advice", key="ai_advice_btn", type="primary"):
+                            with st.spinner("💭 AI analyzing your strategy..."):
+                                ai_advice = get_ai_strategic_advice(
+                                    analysis, 
+                                    st.session_state.openai_api_key,
+                                    st.session_state.get('llm_model', 'gpt-4o-mini')
+                                )
+                            
+                            st.markdown("##### 🎯 AI Strategic Insights:")
+                            st.markdown(ai_advice)
+                            
+                            # Download AI advice
+                            combined_report = f"""INDIVIDUAL ADVANCEMENT PLAN
+================================
+Member: {analysis['member_name']}
+Current Rank: {analysis['current_rank']}
+Target Rank: {analysis['desired_rank']}
+
+SYSTEM RECOMMENDATIONS:
+{recommendations_text}
+
+================================
+AI STRATEGIC ADVISOR INSIGHTS:
+================================
+{ai_advice}
+"""
+                            
+                            st.download_button(
+                                label="[DOWNLOAD] Complete AI-Enhanced Strategy Plan",
+                                data=combined_report,
+                                file_name=f"ai_strategy_plan_{selected_member}_{target_rank}.txt",
+                                mime="text/plain"
+                            )
+                    else:
+                        st.info("🔑 Add OpenAI API key in sidebar to unlock AI Strategic Advisor")
                 
                 # Achievement status
                 if analysis['is_achievable']:

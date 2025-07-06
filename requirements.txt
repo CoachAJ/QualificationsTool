@@ -1,9 +1,9 @@
-streamlit>=1.28.0
-pandas>=1.5.0
-pytz>=2023.3
-numpy>=1.24.0
+streamlit==1.39.0
+pandas==2.2.3
+numpy==2.1.2
+pytz==2024.2
+openai==1.54.4
 
 # AI Provider Libraries (optional - install manually when needed)
-# openai>=1.0.0
 # anthropic>=0.7.0
 # google-generativeai>=0.3.0
