@@ -193,23 +193,55 @@ def main():
     # LLM Integration Section
     st.sidebar.markdown("---")
     st.sidebar.header("🤖 AI Strategic Advisor")
-    st.sidebar.markdown("<span class='brand-accent'>✨ Get Personalized Strategy Advice</span>", unsafe_allow_html=True)
+    st.sidebar.markdown("<span class='brand-accent'>✨ Expert Data Scientist Advisor</span>", unsafe_allow_html=True)
     
-    # API Key input
-    api_key = st.sidebar.text_input(
-        "OpenAI API Key",
-        type="password",
-        help="Enter your OpenAI API key for AI-powered strategic advice",
-        placeholder="sk-..."
-    )
-    
-    # LLM Model selection
+    # LLM Model selection (moved up to determine API key type)
     llm_model = st.sidebar.selectbox(
         "🤖 AI Model",
-        options=["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+        options=[
+            "gpt-4o",
+            "gpt-4o-mini", 
+            "gpt-4-turbo",
+            "gpt-3.5-turbo",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-haiku-20240307",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash"
+        ],
         index=1,  # Default to gpt-4o-mini for cost efficiency
-        help="Choose AI model for strategic analysis"
+        help="Choose AI model for strategic analysis - OpenAI, Anthropic Claude, or Google Gemini"
     )
+    
+    # API Key input based on selected model
+    if llm_model.startswith('gpt'):
+        api_key = st.sidebar.text_input(
+            "OpenAI API Key",
+            type="password",
+            help="Enter your OpenAI API key for GPT models",
+            placeholder="sk-proj-..."
+        )
+    elif llm_model.startswith('claude'):
+        api_key = st.sidebar.text_input(
+            "Anthropic API Key",
+            type="password", 
+            help="Enter your Anthropic API key for Claude models",
+            placeholder="sk-ant-..."
+        )
+    elif llm_model.startswith('gemini'):
+        api_key = st.sidebar.text_input(
+            "Google AI API Key",
+            type="password",
+            help="Enter your Google AI API key for Gemini models",
+            placeholder="AIza..."
+        )
+    else:
+        api_key = st.sidebar.text_input(
+            "API Key",
+            type="password",
+            help="Enter your API key for the selected model",
+            placeholder="API key..."
+        )
     
     # Store API key in session state
     if api_key:
@@ -765,8 +797,40 @@ PLACEMENT STRATEGIES:
             mime="text/plain"
         )
 
+def get_helpful_info_context() -> str:
+    """Load context from helpful info folder for AI advisor"""
+    helpful_info_path = "helpful info"
+    context = ""
+    
+    if os.path.exists(helpful_info_path):
+        context += "\n=== YOUNGEVITY BUSINESS RESOURCES AVAILABLE ===\n"
+        context += "- CompensationPlan_022723.pdf: Full YGY compensation structure\n"
+        context += "- YGY-Policies-Procedures_0625.pdf: Business rules and compliance guidelines\n"
+        context += "- GLOSSARY OF TERMS.pdf: Youngevity terminology reference\n"
+        context += "- rank Qualifications report.pdf: Detailed rank requirements and qualifications\n"
+        context += "- Sample genealogy and volume data for pattern analysis\n"
+        context += "=== END RESOURCES ===\n\n"
+    
+    return context
+
 def get_ai_strategic_advice(analysis_data: Dict, api_key: str, model: str = "gpt-4o-mini") -> str:
-    """Get AI-powered strategic advice for rank advancement"""
+    """Get AI-powered strategic advice for rank advancement with expert data scientist capabilities"""
+    try:
+        # Determine AI provider based on model
+        if model.startswith('gpt'):
+            return get_openai_advice(analysis_data, api_key, model)
+        elif model.startswith('claude'):
+            return get_claude_advice(analysis_data, api_key, model)
+        elif model.startswith('gemini'):
+            return get_gemini_advice(analysis_data, api_key, model)
+        else:
+            return get_openai_advice(analysis_data, api_key, model)  # Default to OpenAI
+            
+    except Exception as e:
+        return f"❌ AI Advisor Error: {str(e)}"
+
+def get_openai_advice(analysis_data: Dict, api_key: str, model: str) -> str:
+    """Get OpenAI-powered strategic advice"""
     try:
         import openai
         openai.api_key = api_key
@@ -777,39 +841,61 @@ def get_ai_strategic_advice(analysis_data: Dict, api_key: str, model: str = "gpt
         desired_rank = analysis_data['desired_rank']
         gaps = analysis_data['gaps']
         move_recommendations = analysis_data['move_recommendations']
+        helpful_context = get_helpful_info_context()
         
-        prompt = f"""
-You are an expert Youngevity business strategist helping a distributor advance their rank.
+        system_prompt = f"""
+You are an EXPERT DATA SCIENTIST specializing in MLM/Network Marketing business structure optimization for MAXIMUM COMPENSATION.
 
-DISTRIBUTOR: {member_name}
-CURRENT RANK: {current_rank}
-DESIRED RANK: {desired_rank}
+EXPERTISE AREAS:
+- Data Science & Analytics: Advanced statistical analysis of genealogy and volume data
+- MLM Business Architecture: Deep understanding of downline structure optimization  
+- Youngevity Compensation Expert: Master knowledge of YGY rank requirements, bonuses, and advancement strategies
+- Strategic Planning: ROI-focused move recommendations for maximum earning potential
 
-CURRENT GAPS:
+YOUR MISSION: Structure business for MAXIMUM COMPENSATION based on Youngevity compensation plan rules.
+
+{helpful_context}
+
+APPROACH:
+1. Data-Driven Decisions: Use statistical analysis to identify highest ROI moves
+2. Rule Compliance: Ensure all strategies follow YGY policies and procedures
+3. Maximum Compensation Focus: Prioritize moves that generate highest income potential
+4. Scalable Strategies: Build sustainable long-term business architecture
+5. Risk Mitigation: Identify potential compliance or business risks
+"""
+        
+        user_prompt = f"""
+DISTRIBUTOR ANALYSIS:
+Name: {member_name}
+Current Rank: {current_rank}
+Desired Rank: {desired_rank}
+
+DATA ANALYSIS - CURRENT GAPS:
 - PQV Gap: ${gaps['pqv_gap']:.2f}
 - GQV Gap: ${gaps['gqv_gap']:.2f} 
 - Qualifying Legs Gap: {gaps['legs_gap']}
 
 SYSTEM RECOMMENDATIONS:
-{chr(10).join(move_recommendations[:10])}  # Limit to first 10 lines
+{chr(10).join(move_recommendations[:12])}
 
-As a Youngevity expert, provide:
-1. STRATEGIC PRIORITIES - What should they focus on first?
-2. BUSINESS INSIGHTS - Key success factors for this advancement
-3. TIMELINE GUIDANCE - Realistic timeframe for achievement
-4. RISK MITIGATION - Potential challenges and solutions
-5. NEXT STEPS - Specific action items beyond the system recommendations
+As an EXPERT DATA SCIENTIST, provide:
+1. 📊 DATA INSIGHTS - Statistical analysis of advancement probability
+2. 💰 COMPENSATION OPTIMIZATION - Highest ROI strategic moves
+3. 🏁 BUSINESS ARCHITECTURE - Optimal structure for maximum earnings
+4. ⏰ TIMELINE & MILESTONES - Data-driven achievement projections
+5. ⚠️ RISK ANALYSIS - Compliance and business risk assessment
+6. 🚀 NEXT ACTIONS - Specific implementable steps
 
-Be specific, actionable, and focus on real-world Youngevity business strategies. Keep response under 300 words.
+Focus on MAXIMUM COMPENSATION and provide data-backed strategic insights. Keep response under 350 words.
 """
         
         response = openai.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "You are an expert Youngevity MLM business strategist with deep knowledge of rank advancement, volume moves, and team building strategies."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
-            max_tokens=400,
+            max_tokens=500,
             temperature=0.7
         )
         
@@ -818,7 +904,97 @@ Be specific, actionable, and focus on real-world Youngevity business strategies.
     except ImportError:
         return "❌ OpenAI library not installed. Run: pip install openai"
     except Exception as e:
-        return f"❌ AI Advisor Error: {str(e)}"
+        return f"❌ OpenAI Error: {str(e)}"
+
+def get_claude_advice(analysis_data: Dict, api_key: str, model: str) -> str:
+    """Get Claude-powered strategic advice"""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        member_name = analysis_data['member_name']
+        current_rank = analysis_data['current_rank']
+        desired_rank = analysis_data['desired_rank']
+        gaps = analysis_data['gaps']
+        move_recommendations = analysis_data['move_recommendations']
+        helpful_context = get_helpful_info_context()
+        
+        prompt = f"""
+You are an EXPERT DATA SCIENTIST specializing in MLM business optimization for MAXIMUM COMPENSATION.
+
+{helpful_context}
+
+DISTRIBUTOR: {member_name} | {current_rank} → {desired_rank}
+GAPS: PQV ${gaps['pqv_gap']:.2f} | GQV ${gaps['gqv_gap']:.2f} | Legs {gaps['legs_gap']}
+
+SYSTEM MOVES:
+{chr(10).join(move_recommendations[:10])}
+
+Provide expert data scientist analysis for MAXIMUM COMPENSATION optimization:
+1. DATA INSIGHTS & ROI ANALYSIS
+2. COMPENSATION OPTIMIZATION STRATEGY  
+3. BUSINESS ARCHITECTURE RECOMMENDATIONS
+4. TIMELINE & RISK ASSESSMENT
+5. ACTIONABLE NEXT STEPS
+
+Focus on highest earning potential moves. Max 300 words.
+"""
+        
+        response = client.messages.create(
+            model=model,
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return response.content[0].text
+        
+    except ImportError:
+        return "❌ Anthropic library not installed. Run: pip install anthropic"
+    except Exception as e:
+        return f"❌ Claude Error: {str(e)}"
+
+def get_gemini_advice(analysis_data: Dict, api_key: str, model: str) -> str:
+    """Get Gemini-powered strategic advice"""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model_instance = genai.GenerativeModel(model)
+        
+        member_name = analysis_data['member_name']
+        current_rank = analysis_data['current_rank']
+        desired_rank = analysis_data['desired_rank']
+        gaps = analysis_data['gaps']
+        move_recommendations = analysis_data['move_recommendations']
+        helpful_context = get_helpful_info_context()
+        
+        prompt = f"""
+EXPERT DATA SCIENTIST - MLM COMPENSATION OPTIMIZATION
+
+{helpful_context}
+
+ANALYSIS TARGET: {member_name} ({current_rank} → {desired_rank})
+DATA GAPS: PQV ${gaps['pqv_gap']:.2f}, GQV ${gaps['gqv_gap']:.2f}, Legs {gaps['legs_gap']}
+
+SYSTEM RECOMMENDATIONS:
+{chr(10).join(move_recommendations[:10])}
+
+As expert data scientist, optimize for MAXIMUM COMPENSATION:
+1. Statistical ROI analysis
+2. Compensation optimization strategy
+3. Business structure recommendations  
+4. Risk/timeline assessment
+5. Priority action items
+
+Data-driven, compensation-focused. Max 300 words.
+"""
+        
+        response = model_instance.generate_content(prompt)
+        return response.text
+        
+    except ImportError:
+        return "❌ Google AI library not installed. Run: pip install google-generativeai"
+    except Exception as e:
+        return f"❌ Gemini Error: {str(e)}"
 
 def display_individual_rank_planner(team_data, group_volume_df, current_date):
     """Display Individual Rank Advancement Planner"""

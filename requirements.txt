@@ -2,8 +2,8 @@ streamlit==1.39.0
 pandas==2.2.3
 numpy==2.1.2
 pytz==2024.2
-openai==1.54.4
 
-# AI Provider Libraries (optional - install manually when needed)
-# anthropic>=0.7.0
-# google-generativeai>=0.3.0
+# Multi-Provider AI Libraries for Expert Data Scientist Advisor
+openai==1.54.4
+anthropic==0.40.0
+google-generativeai==0.8.3
