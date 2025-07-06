@@ -14,22 +14,14 @@ from typing import Dict, List, Any, Optional
 
 # Import functions from the main script (ImportError fix applied)
 from ygy_data_setup import (
-    load_csv_files,
-    create_team_data_dictionary,
-    build_downline_tree,
-    calculate_hierarchical_levels,
-    find_organizational_root,
-    get_member_summary,
-    calculate_all_ranks,
-    analyze_member_qualifications,
-    identify_strategic_assets,
-    suggest_pqv_moves,
-    suggest_leg_moves,
-    suggest_placement_moves,
-    analyze_leader_strategic_moves,
-    get_current_date_la_timezone,
-    RANK_REQUIREMENTS,
-    RANK_HIERARCHY
+    load_csv_files, create_team_data_dictionary, validate_genealogy_data,
+    build_downline_tree, calculate_all_ranks, analyze_member_qualifications,
+    identify_strategic_assets, analyze_leader_strategic_moves,
+    calculate_hierarchical_levels, find_organizational_root,
+    get_member_summary, get_current_date_la_timezone, RANK_HIERARCHY
+)
+from individual_rank_planner import (
+    analyze_individual_rank_advancement, get_available_ranks_for_member
 )
 
 # Page configuration
@@ -217,22 +209,88 @@ def main():
                     group_volume_df = pd.read_csv(group_volume_path)
                     genealogy_df = pd.read_csv(genealogy_path)
                     
-                    # Process the data
-                    team_data = create_team_data_dictionary(genealogy_df)
-                    downline_tree = build_downline_tree(team_data)
-                    hierarchical_levels = calculate_hierarchical_levels(team_data, downline_tree)
+                    if genealogy_df is not None:
+                        st.success(f"Genealogy report uploaded successfully! ({len(genealogy_df)} records)")
+                        st.session_state.genealogy_df = genealogy_df
+                        
+                        # Validate the data first
+                        with st.spinner("Validating data quality..."):
+                            try:
+                                validation_result = validate_genealogy_data(genealogy_df)
+                                # Ensure all required keys exist
+                                if not isinstance(validation_result, dict):
+                                    raise ValueError("Validation function returned invalid format")
+                                
+                                # Add missing keys with defaults
+                                validation_result.setdefault('warnings', [])
+                                validation_result.setdefault('errors', [])
+                                validation_result.setdefault('has_issues', False)
+                                validation_result.setdefault('summary', 'Validation completed')
+                                validation_result.setdefault('total_members', len(genealogy_df))
+                                
+                            except Exception as e:
+                                st.error(f"Error during validation: {str(e)}")
+                                # Fallback validation result
+                                validation_result = {
+                                    'warnings': [],
+                                    'errors': [f"Validation error: {str(e)}"],
+                                    'has_issues': True,
+                                    'summary': f"Validation failed: {str(e)}",
+                                    'total_members': len(genealogy_df)
+                                }
+                        
+                        with st.expander("Data Quality Report", expanded=validation_result.get('has_issues', True)):
+                            st.info(validation_result.get('summary', 'Data validation completed'))
+                            
+                            # Display errors first
+                            if validation_result['errors']:
+                                st.subheader("[ALERT] Critical Issues")
+                                for error in validation_result['errors']:
+                                    st.error(error)
+                            
+                            # Display warnings
+                            if validation_result['warnings']:
+                                st.subheader("[WARNING] Data Quality Issues")
+                                for warning in validation_result['warnings']:
+                                    st.warning(warning)
+                            
+                            if not validation_result['has_issues']:
+                                st.success("[OK] Data validation passed - no issues found")
+                        
+                        # Process the genealogy data and store results
+                        with st.spinner("Processing genealogy data..."):
+                            try:
+                                team_data = create_team_data_dictionary(genealogy_df)
+                                downline_tree = build_downline_tree(team_data)
+                                calculated_ranks = calculate_all_ranks(team_data, downline_tree)
+                                hierarchical_levels = calculate_hierarchical_levels(team_data, downline_tree)
+                                
+                                # Store in session state
+                                st.session_state.team_data = team_data
+                                st.session_state.downline_tree = downline_tree
+                                st.session_state.calculated_ranks = calculated_ranks
+                                st.session_state.hierarchical_levels = hierarchical_levels
+                                
+                                st.success("Data processed successfully!")
+                                
+                            except Exception as e:
+                                st.error(f"Error processing genealogy data: {str(e)}")
+                                st.stop()
                     
-                    # Store levels in team_data
-                    for member_id, level in hierarchical_levels.items():
-                        if member_id in team_data:
-                            team_data[member_id]['hierarchical_level'] = level
-                    
-                    organizational_root = find_organizational_root(team_data)
-                    calculated_ranks = calculate_all_ranks(team_data, downline_tree)
-                    current_date = get_current_date_la_timezone()
-                
-                # Display results
-                display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date, organizational_root, hierarchical_levels)
+                    try:
+                        organizational_root = find_organizational_root(team_data)
+                        calculated_ranks = calculate_all_ranks(team_data, downline_tree)
+                        current_date = get_current_date_la_timezone()
+                        
+                        # Display results
+                        display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, calculated_ranks, current_date, organizational_root, hierarchical_levels)
+                        
+                        # Display Individual Rank Planner
+                        display_individual_rank_planner(team_data, group_volume_df, current_date)
+                        
+                    except Exception as e:
+                        st.error(f"Error displaying dashboard: {str(e)}")
+                        st.error("Please check your CSV format and try again.")
                 
         except Exception as e:
             st.error(f"Error processing files: {str(e)}")
@@ -405,7 +463,7 @@ def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, c
         analysis_candidates.append(leader)
     
     # Member Search Section
-    st.markdown("### 🔍 Find Any Member")
+    st.markdown("### [SEARCH] Find Any Member")
     col1, col2 = st.columns(2)
     
     with col1:
@@ -428,7 +486,7 @@ def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, c
                         'Current Rank': member_analysis['current_rank'],
                         'PQV': member_analysis['pqv'],
                         'Level': hierarchical_levels.get(member_id, 'Unknown'),
-                        'Priority': '🔍 SEARCH RESULT'
+                        'Priority': '[SEARCH] RESULT'
                     })
             
             if search_results:
@@ -442,7 +500,7 @@ def display_dashboard(group_volume_df, genealogy_df, team_data, downline_tree, c
     
     # Leader Selection
     if analysis_candidates:
-        st.markdown("### 📊 Select Member for Strategic Analysis")
+        st.markdown("### [ANALYSIS] Select Member for Strategic Analysis")
         
         # Create dropdown options with priority indicators
         options = []
@@ -482,7 +540,7 @@ def display_strategic_analysis(strategic_analysis):
     assets = strategic_analysis['strategic_assets']
     
     # Leader Overview
-    st.markdown("### 👤 Leader Overview")
+    st.markdown("### [LEADER] Overview")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -500,7 +558,7 @@ def display_strategic_analysis(strategic_analysis):
         st.metric("PQV Gap", f"${gap:.2f}")
     
     # Strategic Assets
-    st.markdown("### 🎯 Strategic Assets")
+    st.markdown("### [ASSETS] Strategic Assets")
     
     col1, col2, col3 = st.columns(3)
     
@@ -514,16 +572,16 @@ def display_strategic_analysis(strategic_analysis):
         st.metric("Placeable Assets", f"{len(assets['placeable_assets'])} PCUSTs")
     
     # Recommendations Tabs
-    tab1, tab2, tab3 = st.tabs(["💰 PQV Solutions", "📈 Leg Development", "📍 Placement Strategy"])
+    tab1, tab2, tab3 = st.tabs(["[PQV] Solutions", "[LEG] Development", "[PLACE] Strategy"])
     
     with tab1:
         st.markdown("### PQV Gap Solutions")
         pqv_recs = strategic_analysis['pqv_recommendations']
         if pqv_recs:
             for rec in pqv_recs:
-                if "✅" in rec:
+                if "[OK]" in rec:
                     st.markdown(f'<div class="success-box">{rec}</div>', unsafe_allow_html=True)
-                elif "❌" in rec or "⚠️" in rec:
+                elif "[ALERT]" in rec or "[WARNING]" in rec:
                     st.markdown(f'<div class="warning-box">{rec}</div>', unsafe_allow_html=True)
                 else:
                     st.markdown(rec)
@@ -536,7 +594,7 @@ def display_strategic_analysis(strategic_analysis):
         if leg_recs:
             for rec in leg_recs:
                 if rec.strip():  # Skip empty lines
-                    if "🎯" in rec or "👤" in rec:
+                    if "[TARGET]" in rec or "[LEG]" in rec:
                         st.markdown(f"**{rec}**")
                     else:
                         st.markdown(rec)
@@ -549,7 +607,7 @@ def display_strategic_analysis(strategic_analysis):
         if placement_recs:
             for rec in placement_recs:
                 if rec.strip():  # Skip empty lines
-                    if "📍" in rec or "👤" in rec or "🎯" in rec:
+                    if "[PLACE]" in rec or "[LEG]" in rec or "[TARGET]" in rec:
                         st.markdown(f"**{rec}**")
                     else:
                         st.markdown(rec)
@@ -557,9 +615,84 @@ def display_strategic_analysis(strategic_analysis):
             st.info("No placement opportunities available.")
     
     # Download Results
-    st.markdown("### 📥 Export Results")
+    st.markdown("### [EXPORT] Results")
     
-    # Create summary report
+    # Create CSV data for export
+    import pandas as pd
+    import io
+    
+    # Prepare CSV export data
+    export_data = []
+    
+    # Add leader info
+    export_data.append({
+        'Category': 'LEADER',
+        'ID': leader_info['member_id'],
+        'Name': leader_info['name'],
+        'Current_Rank': leader_info['current_rank'],
+        'Current_PQV': leader_info['pqv'],
+        'Next_Rank': leader_info['next_achievable_rank'],
+        'Action_Type': 'OVERVIEW',
+        'Recommendation': f"Current: {leader_info['current_rank']} | Target: {leader_info['next_achievable_rank']}",
+        'Priority': 'HIGH'
+    })
+    
+    # Add PQV recommendations
+    for i, rec in enumerate(strategic_analysis['pqv_recommendations']):
+        if rec.strip() and not rec.startswith('['):
+            export_data.append({
+                'Category': 'PQV_SOLUTION',
+                'ID': leader_info['member_id'],
+                'Name': leader_info['name'],
+                'Current_Rank': leader_info['current_rank'],
+                'Current_PQV': leader_info['pqv'],
+                'Next_Rank': leader_info['next_achievable_rank'],
+                'Action_Type': 'PQV_MOVE',
+                'Recommendation': rec.strip(),
+                'Priority': 'HIGH' if 'SOLUTION' in rec else 'MEDIUM'
+            })
+    
+    # Add leg development recommendations
+    for i, rec in enumerate(strategic_analysis['leg_development_recommendations']):
+        if rec.strip() and '[LEG]' in rec:
+            # Extract member info from recommendation
+            parts = rec.split(')')
+            if len(parts) >= 2:
+                export_data.append({
+                    'Category': 'LEG_DEVELOPMENT',
+                    'ID': 'EXTRACT_FROM_REC',
+                    'Name': 'EXTRACT_FROM_REC', 
+                    'Current_Rank': 'EXTRACT_FROM_REC',
+                    'Current_PQV': 'EXTRACT_FROM_REC',
+                    'Next_Rank': 'EXTRACT_FROM_REC',
+                    'Action_Type': 'VOLUME_MOVE',
+                    'Recommendation': rec.strip(),
+                    'Priority': 'HIGH'
+                })
+    
+    # Add volume donor data
+    for donor in assets['volume_donors']:
+        export_data.append({
+            'Category': 'VOLUME_DONOR',
+            'ID': donor.get('pcust_id', 'N/A'),
+            'Name': donor.get('pcust_name', 'N/A'),
+            'Current_Rank': 'PCUST',
+            'Current_PQV': donor.get('volume', 0),
+            'Next_Rank': 'LOCKED',
+            'Action_Type': 'VOLUME_AVAILABLE',
+            'Recommendation': f"Order #{donor.get('order_number', 'N/A')}: ${donor.get('volume', 0):.2f} available to move",
+            'Priority': 'MEDIUM'
+        })
+    
+    # Convert to DataFrame and CSV
+    df_export = pd.DataFrame(export_data)
+    
+    # Create CSV string
+    csv_buffer = io.StringIO()
+    df_export.to_csv(csv_buffer, index=False)
+    csv_data = csv_buffer.getvalue()
+    
+    # Create detailed text report
     report_text = f"""
 YOUNGEVITY STRATEGIC ANALYSIS REPORT
 Generated: {strategic_analysis['analysis_date']}
@@ -584,12 +717,191 @@ PLACEMENT STRATEGIES:
 {chr(10).join(strategic_analysis['placement_recommendations'])}
 """
     
-    st.download_button(
-        label="📄 Download Strategic Analysis Report",
-        data=report_text,
-        file_name=f"ygy_strategic_analysis_{leader_info['member_id']}.txt",
-        mime="text/plain"
-    )
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.download_button(
+            label="[DOWNLOAD] CSV Export",
+            data=csv_data,
+            file_name=f"ygy_strategic_analysis_{leader_info['member_id']}.csv",
+            mime="text/csv"
+        )
+    
+    with col2:
+        st.download_button(
+            label="[DOWNLOAD] Text Report",
+            data=report_text,
+            file_name=f"ygy_strategic_analysis_{leader_info['member_id']}.txt",
+            mime="text/plain"
+        )
+
+def display_individual_rank_planner(team_data, group_volume_df, current_date):
+    """Display Individual Rank Advancement Planner"""
+    
+    st.markdown("---")
+    st.markdown("## 🎯 Individual Rank Advancement Planner")
+    st.markdown("*Select a specific member and target rank for detailed advancement strategy*")
+    
+    # Get list of all members for dropdown
+    member_options = [(member_id, f"{info['name']} (ID: {member_id})")
+                     for member_id, info in team_data.items()
+                     if info.get('name', '').strip()]
+    member_options.sort(key=lambda x: x[1])  # Sort by name
+    
+    if not member_options:
+        st.warning("No members found in the team data.")
+        return
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Member selection dropdown
+        selected_member = st.selectbox(
+            "🔍 Select Member to Analyze:",
+            options=[opt[0] for opt in member_options],
+            format_func=lambda x: next(opt[1] for opt in member_options if opt[0] == x),
+            key="individual_member_select"
+        )
+    
+    with col2:
+        # Get available ranks for selected member
+        if selected_member:
+            member_info = team_data[selected_member]
+            current_rank = member_info.get('calculated_rank', 'DIS')
+            available_ranks = get_available_ranks_for_member(current_rank)
+            
+            if available_ranks:
+                target_rank = st.selectbox(
+                    "🎯 Target Rank:",
+                    options=available_ranks,
+                    key="target_rank_select"
+                )
+            else:
+                st.info(f"Member {member_info['name']} is already at maximum rank ({current_rank})")
+                return
+    
+    if selected_member and target_rank:
+        st.markdown(f"### 📋 Advancement Plan: {team_data[selected_member]['name']} → {target_rank}")
+        
+        # Prepare volume donors data
+        volume_donors = []
+        if group_volume_df is not None and not group_volume_df.empty:
+            for _, row in group_volume_df.iterrows():
+                if pd.notna(row.get('Order Number')) and pd.notna(row.get('Volume')):
+                    volume_donors.append({
+                        'order_number': str(row['Order Number']),
+                        'volume': float(row['Volume']),
+                        'donor_name': str(row.get('Name', 'Unknown')),
+                        'donor_id': str(row.get('ID#', 'Unknown'))
+                    })
+        
+        # Analyze advancement strategy
+        with st.spinner(f"Analyzing advancement strategy for {target_rank}..."):
+            try:
+                analysis = analyze_individual_rank_advancement(
+                    selected_member, target_rank, team_data, volume_donors, current_date
+                )
+                
+                if 'error' in analysis:
+                    st.error(analysis['error'])
+                    return
+                
+                # Display current status
+                st.markdown("#### 📊 Current Status")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        "Current Rank",
+                        analysis['current_rank'],
+                        delta=None
+                    )
+                
+                with col2:
+                    st.metric(
+                        "Current PQV",
+                        f"${analysis['current_pqv']:.2f}",
+                        delta=None
+                    )
+                
+                with col3:
+                    st.metric(
+                        "Current GQV",
+                        f"${analysis['current_gqv']:.2f}",
+                        delta=None
+                    )
+                
+                # Display requirements and gaps
+                st.markdown("#### 🎯 Target Requirements & Gaps")
+                requirements = analysis['target_requirements']
+                gaps = analysis['gaps']
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    pqv_color = "normal" if gaps['pqv_gap'] == 0 else "inverse"
+                    st.metric(
+                        f"PQV Need (${requirements['min_pqv']:.2f})",
+                        f"${gaps['pqv_gap']:.2f} gap",
+                        delta=None,
+                        delta_color=pqv_color
+                    )
+                
+                with col2:
+                    if requirements.get('min_gqv_3cl', 0) > 0:
+                        gqv_color = "normal" if gaps['gqv_gap'] == 0 else "inverse"
+                        st.metric(
+                            f"GQV-3CL Need (${requirements['min_gqv_3cl']:.2f})",
+                            f"${gaps['gqv_gap']:.2f} gap",
+                            delta=None,
+                            delta_color=gqv_color
+                        )
+                    else:
+                        st.metric("GQV-3CL", "Not Required", delta=None)
+                
+                with col3:
+                    if requirements.get('min_qualified_legs', 0) > 0:
+                        legs_color = "normal" if gaps['legs_gap'] == 0 else "inverse"
+                        leg_req_rank = requirements.get('leg_rank_requirement', 'SA')
+                        st.metric(
+                            f"Qualifying Legs ({leg_req_rank}+)",
+                            f"{gaps['legs_gap']} needed",
+                            delta=None,
+                            delta_color=legs_color
+                        )
+                    else:
+                        st.metric("Qualifying Legs", "Not Required", delta=None)
+                
+                # Display move recommendations
+                if analysis['move_recommendations']:
+                    st.markdown("#### 🚀 Strategic Move Recommendations")
+                    
+                    # Create text area with recommendations
+                    recommendations_text = "\n".join(analysis['move_recommendations'])
+                    st.text_area(
+                        "Detailed Move Strategy:",
+                        value=recommendations_text,
+                        height=400,
+                        key="individual_recommendations"
+                    )
+                    
+                    # Download button for recommendations
+                    st.download_button(
+                        label="[DOWNLOAD] Individual Strategy Plan",
+                        data=recommendations_text,
+                        file_name=f"advancement_plan_{selected_member}_{target_rank}.txt",
+                        mime="text/plain"
+                    )
+                
+                # Achievement status
+                if analysis['is_achievable']:
+                    st.success(f"✅ {target_rank} rank is achievable with the recommended moves!")
+                else:
+                    st.warning(f"⚠️ {target_rank} rank may require additional volume or team building.")
+                    
+            except Exception as e:
+                st.error(f"Error analyzing advancement strategy: {str(e)}")
+                st.exception(e)
 
 if __name__ == "__main__":
     main()

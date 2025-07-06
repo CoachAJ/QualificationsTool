@@ -123,6 +123,176 @@ def create_team_data_dictionary(genealogy_df: pd.DataFrame) -> Dict[str, Dict[st
     print(f"Created team_data dictionary with {len(team_data)} members")
     return team_data
 
+def validate_genealogy_data(genealogy_df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Validate genealogy data for common issues and business rule compliance.
+    
+    Args:
+        genealogy_df (pd.DataFrame): The genealogy DataFrame to validate
+        
+    Returns:
+        Dict[str, Any]: Dictionary containing warnings, errors, and summary
+    """
+    from datetime import datetime
+    warnings = []
+    errors = []
+    
+    # Check for required columns - Title column contains rank information
+    required_columns = ['ID#', 'Name', 'Title', 'Join Date', 'Sponsor ID']
+    missing_columns = [col for col in required_columns if col not in genealogy_df.columns]
+    
+    if missing_columns:
+        errors.append(f"[ALERT] Missing required columns: {', '.join(missing_columns)}")
+        return {
+            'warnings': warnings, 
+            'errors': errors, 
+            'total_members': len(genealogy_df),
+            'has_issues': True,
+            'summary': f"Critical error: Missing required columns - {', '.join(missing_columns)}"
+        }
+    
+    # Check for duplicate IDs
+    duplicate_ids = genealogy_df[genealogy_df['ID#'].duplicated()]['ID#'].tolist()
+    if duplicate_ids:
+        errors.append(f"[ALERT] Duplicate member IDs found: {', '.join(map(str, duplicate_ids))}")
+    
+    # Check for missing critical data
+    missing_names = genealogy_df[genealogy_df['Name'].isna() | (genealogy_df['Name'] == '')]
+    if not missing_names.empty:
+        errors.append(f"[ALERT] {len(missing_names)} members have missing names")
+    
+    missing_titles = genealogy_df[genealogy_df['Title'].isna() | (genealogy_df['Title'] == '')]
+    if not missing_titles.empty:
+        warnings.append(f"[WARNING] {len(missing_titles)} members have missing titles (enrollment status unclear)")
+    
+    # Check for invalid titles/ranks - Title column contains rank information
+    valid_ranks = list(RANK_HIERARCHY) + ['PCUST']
+    if 'Title' in genealogy_df.columns:
+        invalid_titles = genealogy_df[~genealogy_df['Title'].str.upper().str.strip().isin([r.upper() for r in valid_ranks]) & genealogy_df['Title'].notna()]
+        if not invalid_titles.empty:
+            unique_invalid = invalid_titles['Title'].unique()
+            warnings.append(f"[WARNING] Unrecognized titles/ranks found: {', '.join(unique_invalid)}")
+    
+    # Business rule validation: Title column contains valid YGY ranks
+    # Note: Title column contains both enrollment status (PCUST) and distributor ranks (BRA, SRA, etc.)
+    # Rank calculation logic will handle PCUST business rules automatically
+    
+    # Check for orphaned members (no valid sponsor)
+    total_members = len(genealogy_df)
+    all_ids = set(genealogy_df['ID#'].astype(str))
+    orphaned_members = genealogy_df[
+        ~genealogy_df['Sponsor ID'].astype(str).isin(all_ids) & 
+        genealogy_df['Sponsor ID'].notna() & 
+        (genealogy_df['Sponsor ID'] != '')
+    ]
+    if not orphaned_members.empty:
+        warnings.append(f"[WARNING] {len(orphaned_members)} members have sponsors not in dataset")
+    
+    # Check date format issues
+    invalid_dates = 0
+    for index, row in genealogy_df.iterrows():
+        join_date_str = str(row.get('Join Date', '')).strip()
+        if join_date_str and join_date_str != 'nan':
+            try:
+                # Try parsing with common formats
+                for date_format in ['%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%d/%m/%Y']:
+                    try:
+                        datetime.strptime(join_date_str, date_format)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    invalid_dates += 1
+            except:
+                invalid_dates += 1
+    
+    if invalid_dates > 0:
+        warnings.append(f"[WARNING] {invalid_dates} members have unparseable join dates (affects 60-day rule compliance)")
+    
+    # Return validation results
+    return {
+        'warnings': warnings,
+        'errors': errors,
+        'total_members': total_members,
+        'has_issues': len(warnings) > 0 or len(errors) > 0,
+        'summary': f"Validated {total_members} members - {len(warnings)} warnings, {len(errors)} errors"
+    }
+
+def can_pcust_be_moved(member_info: Dict[str, Any], current_date: datetime) -> Dict[str, Any]:
+    """
+    Check if a PCUST can be moved to a different upline based on the 60-day rule.
+    
+    YGY Business Rule: PCUSTs can only be moved within 60 days of their enrollment date.
+    
+    Args:
+        member_info (Dict): Member information dictionary
+        current_date (datetime): Current date for comparison
+        
+    Returns:
+        Dict[str, Any]: Dictionary with movable status and details
+    """
+    result = {
+        'can_move': False,
+        'days_since_enrollment': None,
+        'days_remaining': 0,
+        'enrollment_date': None,
+        'reason': 'Unknown'
+    }
+    
+    # Check if member is PCUST
+    member_title = member_info.get('title', '').upper().strip()
+    if member_title != 'PCUST':
+        result['reason'] = 'Not a PCUST - move rules do not apply'
+        return result
+    
+    # Get join date
+    join_date_str = member_info.get('join_date', '')
+    if not join_date_str or join_date_str in ['', 'nan', None]:
+        result['reason'] = 'No enrollment date available'
+        return result
+    
+    try:
+        # Parse join date - handle multiple formats
+        if isinstance(join_date_str, str):
+            # Try common date formats
+            for date_format in ['%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%d/%m/%Y']:
+                try:
+                    enrollment_date = datetime.strptime(join_date_str.strip(), date_format)
+                    break
+                except ValueError:
+                    continue
+            else:
+                result['reason'] = f'Cannot parse enrollment date: {join_date_str}'
+                return result
+        else:
+            # Handle pandas datetime
+            enrollment_date = pd.to_datetime(join_date_str)
+            if pd.isna(enrollment_date):
+                result['reason'] = 'Invalid enrollment date'
+                return result
+            enrollment_date = enrollment_date.to_pydatetime()
+        
+        # Calculate days since enrollment
+        days_since = (current_date.date() - enrollment_date.date()).days
+        days_remaining = max(0, 60 - days_since)
+        
+        result['enrollment_date'] = enrollment_date.strftime('%m/%d/%Y')
+        result['days_since_enrollment'] = days_since
+        result['days_remaining'] = days_remaining
+        
+        if days_since <= 60:
+            result['can_move'] = True
+            result['reason'] = f'Within 60-day window ({days_remaining} days remaining)'
+        else:
+            result['can_move'] = False
+            result['reason'] = f'Enrollment date exceeded 60-day window by {days_since - 60} days'
+        
+        return result
+        
+    except Exception as e:
+        result['reason'] = f'Error processing enrollment date: {str(e)}'
+        return result
+
 def build_downline_tree(team_data: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
     """
     Build a downline tree dictionary based on Sponsor ID relationships.
@@ -711,24 +881,12 @@ def identify_strategic_assets(leader_id: str, team_data: Dict[str, Dict[str, Any
             continue
             
         pcust_info = team_data[pcust_id]
-        join_date_str = pcust_info.get('join_date', '')
         
-        # Parse join date
-        try:
-            if '/' in join_date_str:
-                join_date = datetime.strptime(join_date_str, '%m/%d/%Y')
-                # Make join_date timezone-aware to match cutoff_date
-                if today_date.tzinfo is not None:
-                    import pytz
-                    la_timezone = pytz.timezone('America/Los_Angeles')
-                    join_date = la_timezone.localize(join_date)
-            else:
-                continue  # Skip if no valid join date
-        except (ValueError, TypeError):
-            continue
+        # Use consistent 60-day move validation
+        move_status = can_pcust_be_moved(pcust_info, today_date)
         
-        # Check if PCUST is older than 60 days
-        if join_date <= cutoff_date:
+        # Check if PCUST can be moved (within 60 days) or is locked (past 60 days)
+        if not move_status['can_move']:
             # This is a Volume Donor - find their movable orders
             pcust_orders = volume_details_df[
                 (volume_details_df['Associate #'] == int(pcust_id)) & 
@@ -750,8 +908,9 @@ def identify_strategic_assets(leader_id: str, team_data: Dict[str, Dict[str, Any
                 placeable_assets.append({
                     'pcust_id': pcust_id,
                     'pcust_name': pcust_info['name'],
-                    'join_date': join_date_str,
-                    'days_since_join': (today_date - join_date).days if join_date.tzinfo else (today_date.replace(tzinfo=None) - join_date).days
+                    'join_date': move_status['enrollment_date'],
+                    'days_since_join': move_status['days_since_enrollment'],
+                    'days_remaining': move_status['days_remaining']
                 })
     
     return {
@@ -763,13 +922,15 @@ def identify_strategic_assets(leader_id: str, team_data: Dict[str, Dict[str, Any
         'analysis_date': today_date.strftime('%Y-%m-%d')
     }
 
-def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> List[str]:
+def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]], leader_info: Dict[str, Any] = None) -> List[str]:
     """
-    Suggest the best combination of movable orders to meet PQV gap.
+    Suggest the best combination of movable orders to meet the PQV gap.
+    Format suggestions like successful 1SE achievement moves.
     
     Args:
-        pqv_gap (float): The PQV amount needed
-        volume_donors (List): List of movable orders from volume donors
+        pqv_gap (float): The amount of PQV needed
+        volume_donors (List[Dict]): List of movable orders from volume donors
+        leader_info (Dict): Information about the leader for personalized suggestions
         
     Returns:
         List[str]: List of text suggestions for PQV moves
@@ -777,56 +938,60 @@ def suggest_pqv_moves(pqv_gap: float, volume_donors: List[Dict[str, Any]]) -> Li
     suggestions = []
     
     if pqv_gap <= 0:
-        suggestions.append("[OK] No PQV gap - leader already meets personal volume requirement.")
+        suggestions.append("[OK] No personal PQV needed - meets rank requirement")
         return suggestions
+    
+    leader_name = leader_info.get('name', 'LEADER') if leader_info else 'LEADER'
+    leader_id = leader_info.get('member_id', 'YOUR_ID') if leader_info else 'YOUR_ID'
     
     if not volume_donors:
-        suggestions.append(f"[ALERT] Need ${pqv_gap:.2f} more PQV but no movable orders available.")
-        suggestions.append("[TIP] Consider: Personal purchase or encourage new orders from team.")
+        suggestions.append(f"[PERSONAL] {leader_name} ({leader_id}): Add ${pqv_gap:.2f} in personal volume to meet PQV requirement")
         return suggestions
     
-    # Sort orders by volume (largest first) for efficient gap filling
-    sorted_orders = sorted(volume_donors, key=lambda x: x['volume'], reverse=True)
+    # Sort orders by volume descending to optimize suggestions
+    sorted_orders = sorted(volume_donors, key=lambda x: x.get('volume', 0), reverse=True)
     
-    # Find best combination to meet gap
-    running_total = 0
-    selected_orders = []
+    suggestions.append(f"[TARGET] {leader_name} needs ${pqv_gap:.2f} in personal PQV - Strategic Order Moves:")
+    
+    # Find best combination of orders - format like 1SE success example
+    total_suggested = 0
+    move_count = 0
     
     for order in sorted_orders:
-        if running_total >= pqv_gap:
+        if total_suggested >= pqv_gap:
             break
-        selected_orders.append(order)
-        running_total += order['volume']
+            
+        order_volume = order.get('volume', 0)
+        if order_volume <= 0:
+            continue
+            
+        move_count += 1
+        total_suggested += order_volume
+        
+        # Format exactly like user's successful 1SE moves:
+        # "Wells, Carole 33884292 → 102773173 Coronado, David"
+        donor_name = order.get('pcust_name', 'Unknown')
+        donor_id = order.get('pcust_id', 'N/A')
+        order_num = order.get('order_number', 'N/A')
+        
+        suggestions.append(f"[MOVE {move_count}] {donor_name} {order_num} → {leader_id} {leader_name}: ${order_volume:.2f}")
+        
+        if move_count >= 5:  # Allow up to 5 moves like user's example
+            break
     
-    if running_total >= pqv_gap:
-        suggestions.append(f"[SOLUTION] PQV Gap Solution Found: Move ${running_total:.2f} volume (${pqv_gap:.2f} needed)")
-        suggestions.append("[MOVES] Recommended Order Moves:")
-        
-        for order in selected_orders:
-            suggestions.append(
-                f"  • Order #{order['order_number']}: ${order['volume']:.2f} from {order['pcust_name']} (ID: {order['pcust_id']})"
-            )
-        
-        excess = running_total - pqv_gap
-        if excess > 0:
-            suggestions.append(f"[NOTE] This provides ${excess:.2f} extra volume beyond the gap.")
-    else:
-        available_total = sum(order['volume'] for order in volume_donors)
-        suggestions.append(f"[WARNING] Insufficient movable volume: ${available_total:.2f} available, ${pqv_gap:.2f} needed")
-        suggestions.append(f"[ORDERS] All Available Orders (${available_total:.2f} total):")
-        
-        for order in sorted_orders:
-            suggestions.append(
-                f"  • Order #{order['order_number']}: ${order['volume']:.2f} from {order['pcust_name']} (ID: {order['pcust_id']})"
-            )
-        
-        shortfall = pqv_gap - available_total
-        suggestions.append(f"[TIP] Still need ${shortfall:.2f} more - consider personal purchases or new team orders.")
+    # Add personal PQV component like user's "41+ personal PQV"
+    remaining_gap = max(0, pqv_gap - total_suggested)
+    if remaining_gap > 0:
+        suggestions.append(f"[PERSONAL] Add ${remaining_gap:.2f}+ personal PQV (new orders)")
+    
+    # Success summary
+    total_solution = total_suggested + remaining_gap
+    suggestions.append(f"[SOLUTION] Total Strategy: ${total_solution:.2f} (${total_suggested:.2f} moves + ${remaining_gap:.2f} personal)")
     
     return suggestions
 
 def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]], 
-                     volume_donors: List[Dict[str, Any]]) -> List[str]:
+                     volume_donors: List[Dict[str, Any]], current_date: datetime) -> List[str]:
     """
     Identify underperforming legs and suggest movable orders to fix their PQV gaps.
     
@@ -834,6 +999,7 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
         leader_id (str): The team leader's ID
         team_data (Dict): The team data dictionary
         volume_donors (List): List of movable orders from volume donors
+        current_date (datetime): Current date for 60-day PCUST move rule validation
         
     Returns:
         List[str]: List of text suggestions for leg development moves
@@ -865,29 +1031,62 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
         # BUSINESS RULE: PCUSTs cannot advance to distributor ranks
         # They can only be moved (within 60 days) or donate volume
         if member_title == 'PCUST' or current_rank == 'PCUST':
+            # Check 60-day move eligibility
+            move_status = can_pcust_be_moved(sponsee_info, current_date)
+            
             # Track PCUSTs separately for volume donation or placement suggestions
             pcust_legs.append({
                 'sponsee_id': sponsee_id,
                 'name': sponsee_info['name'],
                 'current_pqv': current_pqv,
-                'title': member_title
+                'title': member_title,
+                'move_status': move_status
             })
             continue  # Skip rank advancement analysis for PCUSTs
         
-        # Only analyze distributors for rank advancement
+        # Only analyze distributors for rank advancement - check ALL requirements
         next_rank_gap = None
         for rank in RANK_HIERARCHY:
             if get_rank_level(rank) > get_rank_level(current_rank):
                 requirements = RANK_REQUIREMENTS[rank]
+                
+                # Calculate all requirement gaps
                 pqv_gap = max(0, requirements['min_pqv'] - current_pqv)
-                if pqv_gap > 0 and pqv_gap <= 300:  # Reasonable gap to fill
+                
+                # Calculate GQV-3CL if needed
+                current_gqv = calculate_gqv_3cl(sponsee_id, team_data, build_downline_tree(team_data))
+                gqv_gap = max(0, requirements['min_gqv_3cl'] - current_gqv)
+                
+                # Check qualifying legs
+                qualifying_legs_needed = requirements.get('min_qualified_legs', 0)
+                leg_requirement_rank = requirements.get('leg_rank_requirement')
+                current_qualifying_legs = 0
+                
+                if qualifying_legs_needed > 0 and leg_requirement_rank:
+                    # Count legs that meet the rank requirement
+                    for leg_id in downline_tree.get(sponsee_id, []):
+                        leg_rank = calculated_ranks.get(leg_id, 'PCUST')
+                        if get_rank_level(leg_rank) >= get_rank_level(leg_requirement_rank):
+                            current_qualifying_legs += 1
+                
+                legs_gap = max(0, qualifying_legs_needed - current_qualifying_legs)
+                
+                # Consider advancement opportunity if ANY gap exists and PQV gap is reasonable
+                total_strategic_gap = pqv_gap + (gqv_gap * 0.1) + (legs_gap * 50)  # Weighted scoring
+                
+                if (pqv_gap > 0 and pqv_gap <= 500) or (legs_gap > 0 and legs_gap <= 2) or (gqv_gap > 0 and gqv_gap <= 2000):
                     next_rank_gap = {
                         'sponsee_id': sponsee_id,
                         'name': sponsee_info['name'],
                         'current_rank': current_rank,
                         'current_pqv': current_pqv,
+                        'current_gqv': current_gqv,
+                        'current_qualifying_legs': current_qualifying_legs,
                         'target_rank': rank,
-                        'pqv_gap': pqv_gap
+                        'pqv_gap': pqv_gap,
+                        'gqv_gap': gqv_gap,
+                        'legs_gap': legs_gap,
+                        'total_strategic_gap': total_strategic_gap
                     }
                     break
         
@@ -896,20 +1095,42 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
     
     # Provide PCUST business rule information
     if pcust_legs:
+        # Categorize PCUSTs by move eligibility
+        movable_pcusts = [p for p in pcust_legs if p['move_status']['can_move']]
+        locked_pcusts = [p for p in pcust_legs if not p['move_status']['can_move']]
+        
         suggestions.append(f"[PCUST INFO] Found {len(pcust_legs)} PCUST legs:")
-        suggestions.append("⚠️  BUSINESS RULE: PCUSTs cannot advance to distributor ranks.")
-        suggestions.append("📋 PCUST Strategic Options:")
-        suggestions.append("   • Move to different upline (within 60 days of enrollment)")
+        suggestions.append("[ALERT] BUSINESS RULE: PCUSTs cannot advance to distributor ranks.")
+        suggestions.append("[OPTIONS] PCUST Strategic Options:")
+        suggestions.append("   • Move to different upline (ONLY within 60 days of enrollment)")
         suggestions.append("   • Use their volume to help build qualifying legs")
         suggestions.append("   • Focus on personal volume contribution")
         suggestions.append("")
         
-        for pcust in pcust_legs[:5]:  # Show first 5 PCUSTs
-            suggestions.append(f"   [PCUST] {pcust['name']} (ID: {pcust['sponsee_id']}) - PQV: ${pcust['current_pqv']:.2f}")
+        # Show movable PCUSTs first
+        if movable_pcusts:
+            suggestions.append(f"[MOVABLE] PCUSTs ({len(movable_pcusts)} within 60-day window):")
+            for pcust in movable_pcusts[:3]:  # Show first 3 movable
+                move_info = pcust['move_status']
+                suggestions.append(f"   [MOVABLE] {pcust['name']} (ID: {pcust['sponsee_id']}) - PQV: ${pcust['current_pqv']:.2f}")
+                suggestions.append(f"             Enrolled: {move_info['enrollment_date']} | {move_info['reason']}")
+            if len(movable_pcusts) > 3:
+                suggestions.append(f"   ... and {len(movable_pcusts) - 3} more movable PCUSTs")
+            suggestions.append("")
         
-        if len(pcust_legs) > 5:
-            suggestions.append(f"   ... and {len(pcust_legs) - 5} more PCUSTs")
-        suggestions.append("")
+        # Show locked PCUSTs
+        if locked_pcusts:
+            suggestions.append(f"🔒 LOCKED PCUSTs ({len(locked_pcusts)} past 60-day window):")
+            for pcust in locked_pcusts[:3]:  # Show first 3 locked
+                move_info = pcust['move_status']
+                suggestions.append(f"   [LOCKED] {pcust['name']} (ID: {pcust['sponsee_id']}) - PQV: ${pcust['current_pqv']:.2f}")
+                if move_info['enrollment_date']:
+                    suggestions.append(f"            Enrolled: {move_info['enrollment_date']} | {move_info['reason']}")
+                else:
+                    suggestions.append(f"            {move_info['reason']}")
+            if len(locked_pcusts) > 3:
+                suggestions.append(f"   ... and {len(locked_pcusts) - 3} more locked PCUSTs")
+            suggestions.append("")
     
     if not underperforming_legs:
         if pcust_legs:
@@ -922,7 +1143,7 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
     underperforming_legs.sort(key=lambda x: x['pqv_gap'])
     
     suggestions.append(f"[TARGET] Found {len(underperforming_legs)} DISTRIBUTOR legs with advancement opportunities:")
-    suggestions.append("✅ These are enrolled distributors who can advance with additional volume.")
+    suggestions.append("[OK] These are enrolled distributors who can advance with strategic volume moves.")
     suggestions.append("")
     
     available_volume = sum(order['volume'] for order in volume_donors)
@@ -932,11 +1153,32 @@ def suggest_leg_moves(leader_id: str, team_data: Dict[str, Dict[str, Any]],
         suggestions.append(
             f"[LEG] {leg['name']} (ID: {leg['sponsee_id']}) - {leg['current_rank']} -> {leg['target_rank']}"
         )
-        suggestions.append(f"   Current PQV: ${leg['current_pqv']:.2f} | Gap: ${leg['pqv_gap']:.2f}")
+        
+        # Show complete requirements analysis
+        target_requirements = RANK_REQUIREMENTS[leg['target_rank']]
+        suggestions.append(f"   [PQV] Current: ${leg['current_pqv']:.2f} | Need: ${target_requirements['min_pqv']:.2f} | Gap: ${leg['pqv_gap']:.2f}")
+        
+        if target_requirements['min_gqv_3cl'] > 0:
+            suggestions.append(f"   [GQV] Current: ${leg['current_gqv']:.2f} | Need: ${target_requirements['min_gqv_3cl']:.2f} | Gap: ${leg['gqv_gap']:.2f}")
+        
+        if target_requirements['min_qualified_legs'] > 0:
+            leg_req_rank = target_requirements['leg_rank_requirement']
+            suggestions.append(f"   [LEGS] Current: {leg['current_qualifying_legs']} {leg_req_rank}+ legs | Need: {target_requirements['min_qualified_legs']} | Gap: {leg['legs_gap']}")
+        
+        # Priority messaging
+        if leg['pqv_gap'] > 0:
+            suggestions.append(f"   [PRIORITY] PQV gap can be filled with volume moves")
+        if leg['legs_gap'] > 0:
+            leg_req_rank = target_requirements['leg_rank_requirement']
+            suggestions.append(f"   [PRIORITY] Need to build {leg['legs_gap']} more {leg_req_rank}+ qualifying legs")
+        if leg['gqv_gap'] > 0:
+            suggestions.append(f"   [PRIORITY] Need ${leg['gqv_gap']:.2f} more team volume (GQV-3CL)")
         
         # Find best orders for this leg
         available_orders = [order for order in volume_donors if order not in used_orders]
-        leg_suggestions = suggest_pqv_moves(leg['pqv_gap'], available_orders)
+        # Get leg member info for personalized suggestions
+        leg_member_info = {'name': leg['name'], 'member_id': leg['sponsee_id']}
+        leg_suggestions = suggest_pqv_moves(leg['pqv_gap'], available_orders, leg_member_info)
         
         if "✅ PQV Gap Solution Found" in leg_suggestions[0]:
             # Mark orders as used
@@ -1026,8 +1268,10 @@ def analyze_leader_strategic_moves(leader_id: str, team_data: Dict[str, Dict[str
     
     # Generate recommendations
     pqv_gap = leader_analysis.get('gaps_to_next_rank', {}).get('pqv_gap', 0)
-    pqv_suggestions = suggest_pqv_moves(pqv_gap, assets.get('volume_donors', []))
-    leg_suggestions = suggest_leg_moves(leader_id, team_data, assets.get('volume_donors', []))
+    # Pass leader info for personalized PQV suggestions
+    leader_info_for_pqv = {'name': leader_analysis.get('name', 'LEADER'), 'member_id': leader_id}
+    pqv_suggestions = suggest_pqv_moves(pqv_gap, assets.get('volume_donors', []), leader_info_for_pqv)
+    leg_suggestions = suggest_leg_moves(leader_id, team_data, assets.get('volume_donors', []), today_date)
     placement_suggestions = suggest_placement_moves(assets.get('placeable_assets', []), downline_tree)
     
     return {

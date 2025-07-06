@@ -94,6 +94,7 @@ Upload these CSV files from your YGY back office:
 ## 🤖 AI Strategic Advisor
 
 ### Overview
+
 The AI Strategic Advisor allows you to get personalized strategic advice using your own API key from leading AI providers. After your data analysis is complete, you can interact with an AI assistant that understands your organizational structure and YGY business rules.
 
 ### Supported AI Providers
